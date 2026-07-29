@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ash: #a9b0b0;
+  --orange: #ff7a18;
+  --green: #27ae60;
+  --blue: #1e90ff;
+  --surface: 11 13 14;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    overscroll-behavior: none;
+    background:
+      radial-gradient(1100px 700px at 12% -10%, rgba(30, 144, 255, 0.22), transparent 60%),
+      radial-gradient(900px 620px at 92% 8%, rgba(255, 122, 24, 0.18), transparent 58%),
+      radial-gradient(800px 700px at 45% 108%, rgba(39, 174, 96, 0.16), transparent 60%),
+      rgb(var(--surface));
+    color: #f2f4f4;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* a tally button must never fire text selection or the iOS magnifier */
+  button {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+@layer components {
+  .glass {
+    background: rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.32),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  }
+
+  /* Leaflet paints its own panes; glass over a moving map is expensive on
+     mid-range Android. Drop the blur where the map is the backdrop. */
+  .leaflet-container ~ * .glass,
+  .glass--flat {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+}
+
+/* Leaflet's default controls clash with the glass chrome */
+.leaflet-container {
+  background: #0b0d0e;
+  font-family: inherit;
+}
+.leaflet-tooltip {
+  background: rgba(11, 13, 14, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #f2f4f4;
+  backdrop-filter: blur(8px);
+  border-radius: 10px;
+}
+.leaflet-tooltip-top::before {
+  border-top-color: rgba(11, 13, 14, 0.88);
+}
+.leaflet-control-attribution {
+  background: rgba(11, 13, 14, 0.6) !important;
+  color: var(--ash) !important;
+}
+.leaflet-control-attribution a {
+  color: var(--blue) !important;
+}
