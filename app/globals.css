@@ -29,6 +29,31 @@
     -webkit-user-select: none;
     user-select: none;
   }
+
+  /* iOS/Safari renders input glyphs with -webkit-text-fill-color, which
+     ignores `color`. Without pinning it, typed text is invisible on mobile
+     (the classic "it types but I can't see it"). Pin fill + caret explicitly. */
+  input,
+  textarea {
+    color: #ffffff;
+    -webkit-text-fill-color: #ffffff;
+    caret-color: #ff7a18;
+    -webkit-user-select: text;
+    user-select: text;
+    font-size: 16px; /* < 16px makes iOS auto-zoom the page on focus */
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: rgba(169, 176, 176, 0.6);
+    -webkit-text-fill-color: rgba(169, 176, 176, 0.6);
+  }
+}
+
+@layer components {
+  .field {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+  }
 }
 
 @layer components {

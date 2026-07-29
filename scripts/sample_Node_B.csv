@@ -1,0 +1,19 @@
+﻿Node,B
+Project,Colombo Fort morning survey
+PIN,482913
+Junction type,straight
+Latitude,6.9337
+Longitude,79.8452
+Window (seconds),30
+Session start,2026-07-30T07:30:00.000Z
+Session end,2026-07-30T07:33:00.000Z
+
+period,time_start,time_end,N,S,total
+1,13:00:00,13:00:30,0,0,0
+2,13:00:30,13:01:00,30,4,34
+3,13:01:00,13:01:30,38,6,44
+4,13:01:30,13:02:00,16,0,16
+5,13:02:00,13:02:30,0,0,0
+6,13:02:30,13:03:00,0,0,0
+
+TOTAL,,,84,10,94

@@ -112,11 +112,10 @@ export default function JunctionPad({
 
       await enqueue({
         id,
-        session_id: projectId,       // reused key name in the offline queue
-        node_id: userId,
-        surveyor_id: userId,
-        from_approach: treatAsOrigin ? null : inbound,
-        to_approach: arm.id,
+        project_id: projectId,
+        user_id: userId,
+        from_arm: treatAsOrigin ? null : inbound,
+        to_arm: arm.id,
         delta: 1,
         attributes: {},
         occurred_at_device: stamp.occurred_at_device,
@@ -143,11 +142,10 @@ export default function JunctionPad({
     const stamp = stampNow();
     await enqueue({
       id: crypto.randomUUID(),
-      session_id: projectId,
-      node_id: userId,
-      surveyor_id: userId,
-      from_approach: treatAsOrigin ? null : inbound,
-      to_approach: last.armId,
+      project_id: projectId,
+      user_id: userId,
+      from_arm: treatAsOrigin ? null : inbound,
+      to_arm: last.armId,
       delta: -1,
       attributes: { undo_of: last.id },
       occurred_at_device: stamp.occurred_at_device,

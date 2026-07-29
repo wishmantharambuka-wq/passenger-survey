@@ -32,7 +32,7 @@ create table projects (
   name          text not null,
   admin_id      uuid not null references profiles(id),
   status        project_status not null default 'lobby',
-  bin_seconds   int not null default 60 check (bin_seconds between 10 and 900),
+  bin_seconds   int not null default 30 check (bin_seconds between 10 and 900),
   max_participants int not null default 10 check (max_participants between 2 and 10),
   started_at    timestamptz,
   ended_at      timestamptz,

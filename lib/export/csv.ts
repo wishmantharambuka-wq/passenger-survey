@@ -1,183 +1,163 @@
 /**
  * Zero-dependency CSV export.
  *
- * Two files come out of one Export click:
- *   node_counts_<pin>_<stamp>.csv  — per-node summary an analyst opens first:
- *                                     lat/lng, junction kind, and one column per
- *                                     compass direction, plus totals.
- *   raw_taps_<pin>_<stamp>.csv     — every tap that hit the database, with
- *                                     timestamps, for reproducibility.
+ * The primary deliverable is a PER-MEMBER time series: one file per node, with
+ * one row for every fixed time window (default 30s) showing how many people
+ * that surveyor sent in each direction during that window. This is what an
+ * analyst needs to see flow build and ebb over the session.
  *
- * Excel opens both directly (UTF-8 with BOM keeps names/labels correct).
+ * Excel opens the files directly (UTF-8 BOM keeps labels correct).
+ *
+ * The export re-bins from the RAW `taps` table rather than the pre-aggregated
+ * `tap_bins`, so the window size here is independent of the project's stored
+ * bin_seconds — "a row every 30 seconds" holds regardless.
  */
 
-import { supabase } from "@/lib/supabase/client";
-import { enumeratePaths, reconcile, toSeries, type LinkSpec, type RawBin }
-  from "@/lib/flow/reconcile";
-import type { ReconcileResult } from "@/lib/flow/types";
-import type { EdgeRow, Participant, Project } from "@/hooks/useProject";
+import type { Participant, Project } from "@/hooks/useProject";
 
-const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
+export const EXPORT_BIN_SECONDS = 30;
 
-export interface TapRow {
+const COMPASS_ORDER = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
+
+/** Arm labels a node has, from the junction kind picked in the lobby. */
+function armsForKind(kind: Participant["junction_kind"]): string[] {
+  switch (kind) {
+    case "straight":       return ["N", "S"];
+    case "t_junction":     return ["N", "SE", "SW"];
+    case "cross_junction": return ["N", "E", "S", "W"];
+    case "terminus":       return ["N"];
+    default:               return [...COMPASS_ORDER];
+  }
+}
+
+interface RawTap {
   id: string;
-  project_id: string;
   user_id: string;
-  user_code: string;
-  from_arm: string | null;
   to_arm: string;
   delta: number;
-  occurred_at: string;
+  occurred_at: string | null;
   received_at: string;
 }
 
-/**
- * Pulls tap_bins + raw taps for the project, builds both CSVs, and returns
- * them ready to hand to downloadCsv(). Called from the Done button.
- */
-export async function fullExport(
-  project: Project,
-  participants: Participant[],
-  edges: EdgeRow[],
-) {
-  const codeByUser = new Map(participants.map((p) => [p.user_id, p.code]));
-
-  const [{ data: bins = [] }, { data: taps = [] }] = await Promise.all([
-    supabase.from("tap_bins")
-      .select("user_id, from_arm, to_arm, bin_start, count")
-      .eq("project_id", project.id).order("bin_start"),
-    supabase.from("taps")
-      .select("id, project_id, user_id, from_arm, to_arm, delta, occurred_at, received_at")
-      .eq("project_id", project.id).order("occurred_at"),
-  ]);
-
-  const rawBins: RawBin[] = (bins ?? []).map((r: any) => ({
-    nodeCode: codeByUser.get(r.user_id) ?? r.user_id,
-    fromApproach: r.from_arm || null,
-    toApproach: r.to_arm,
-    binStartMs: new Date(r.bin_start).getTime(),
-    count: r.count,
-  }));
-
-  // Reconcile is opt-in — if the admin didn't draw any edges, we still
-  // ship the per-direction summary, just without OD path estimates.
-  let result: ReconcileResult | null = null;
-  if (edges.length > 0) {
-    const links: LinkSpec[] = edges.map((e) => ({
-      from: codeByUser.get(e.from_user) ?? e.from_user,
-      to:   codeByUser.get(e.to_user)   ?? e.to_user,
-      departureApproach: e.id,
-      lengthM: e.length_m,
-    }));
-    const paths = enumeratePaths(links, { maxDepth: 4 });
-    if (rawBins.length) {
-      result = reconcile(toSeries(rawBins, project.bin_seconds * 1000), links, paths);
-    }
-  }
-
-  const tapRows: TapRow[] = (taps ?? []).map((r: any) => ({
-    ...r, user_code: codeByUser.get(r.user_id) ?? r.user_id,
-  }));
-
-  return {
-    summaryCsv: nodeSummaryCsv(project, participants, rawBins, result),
-    tapsCsv:    tapsToCsv(tapRows),
-    tapCount:   tapRows.length,
-    result,
-  };
+async function fetchTaps(projectId: string): Promise<RawTap[]> {
+  // Lazy import keeps this module importable outside the browser (tests).
+  const { supabase } = await import("@/lib/supabase/client");
+  const { data } = await supabase
+    .from("taps")
+    .select("id, user_id, to_arm, delta, occurred_at, received_at")
+    .eq("project_id", projectId)
+    .order("occurred_at");
+  return (data ?? []) as RawTap[];
 }
 
 /**
- * The primary spreadsheet. Three stacked sections so a coordinator can open
- * it in Excel and immediately see:
- *   1) project meta
- *   2) NODES: lat, lng, junction kind, one column per compass direction, total
- *   3) if edges were drawn — link retentions and every A→B→C / A→B→¬C
- *      truncation combination with 95% CI
+ * Build one member's time-series CSV: a header block, then a row per
+ * `binSeconds` window from session start to end, with a column per direction.
  */
-export function nodeSummaryCsv(
+export function memberTimeSeriesCsv(
   project: Project,
-  participants: Participant[],
-  bins: RawBin[],
-  result: ReconcileResult | null,
+  participant: Participant,
+  taps: RawTap[],
+  binSeconds = EXPORT_BIN_SECONDS,
 ): string {
+  const mine = taps.filter((t) => t.user_id === participant.user_id);
+
+  // Column set: the node's own arms, plus any direction that actually shows up
+  // in the data (defensive — covers older edge-id taps or custom nodes).
+  const observed = new Set(mine.map((t) => t.to_arm));
+  const cols = [
+    ...armsForKind(participant.junction_kind),
+    ...[...observed].filter((a) => !armsForKind(participant.junction_kind).includes(a)),
+  ];
+
+  // Time span. Prefer the project window; fall back to the data's own range.
+  const times = mine
+    .map((t) => new Date(t.occurred_at ?? t.received_at).getTime())
+    .filter((n) => Number.isFinite(n));
+  const startMs = project.started_at
+    ? new Date(project.started_at).getTime()
+    : times.length ? Math.min(...times) : Date.now();
+  const endMs = project.ended_at
+    ? new Date(project.ended_at).getTime()
+    : times.length ? Math.max(...times) : startMs;
+
+  const step = binSeconds * 1000;
+  const nBins = Math.max(1, Math.ceil((endMs - startMs) / step));
+
+  // grid[bin][arm] = net count
+  const grid: Record<string, number>[] = Array.from({ length: nBins }, () => ({}));
+  for (const t of mine) {
+    const ms = new Date(t.occurred_at ?? t.received_at).getTime();
+    const idx = Math.min(nBins - 1, Math.max(0, Math.floor((ms - startMs) / step)));
+    grid[idx][t.to_arm] = (grid[idx][t.to_arm] ?? 0) + t.delta;
+  }
+
   const out: string[] = [];
   const row = (...xs: (string | number | null | undefined)[]) =>
     out.push(xs.map(escape).join(","));
 
-  row("project", project.name);
-  row("join_code", project.join_code);
-  row("bin_seconds", project.bin_seconds);
-  row("started_at", project.started_at ?? "");
-  row("ended_at",   project.ended_at ?? new Date().toISOString());
+  row("Node", participant.code);
+  row("Project", project.name);
+  row("PIN", project.join_code);
+  row("Junction type", participant.junction_kind ?? "");
+  row("Latitude", participant.lat ?? "");
+  row("Longitude", participant.lng ?? "");
+  row("Window (seconds)", binSeconds);
+  row("Session start", new Date(startMs).toISOString());
+  row("Session end", new Date(endMs).toISOString());
   row("");
 
-  // ── NODES: pivot the bins into a direction-wise table ───────────────
-  row("# NODES");
-  row("code", "user_id", "lat", "lng", "junction_kind",
-      ...COMPASS, "total");
-
-  const byNode = new Map<string, Record<string, number>>();
-  for (const b of bins) {
-    let m = byNode.get(b.nodeCode);
-    if (!m) { m = {}; byNode.set(b.nodeCode, m); }
-    m[b.toApproach] = (m[b.toApproach] ?? 0) + b.count;
-  }
-
-  for (const p of participants.slice().sort((a, b) => a.join_order - b.join_order)) {
-    const counts = byNode.get(p.code) ?? {};
-    let total = 0;
-    const dirCells = COMPASS.map((d) => {
-      const c = counts[d] ?? 0; total += c; return c;
+  // one row per time window
+  row("period", "time_start", "time_end", ...cols, "total");
+  let runningTotal = 0;
+  for (let i = 0; i < nBins; i++) {
+    const t0 = startMs + i * step;
+    const t1 = Math.min(endMs, t0 + step);
+    let binTotal = 0;
+    const cells = cols.map((arm) => {
+      const c = Math.max(0, grid[i][arm] ?? 0);
+      binTotal += c;
+      return c;
     });
-    // catch any non-compass arms (e.g. an edge id from an older run)
-    for (const [k, v] of Object.entries(counts)) {
-      if (!(COMPASS as readonly string[]).includes(k)) total += v;
-    }
-    row(p.code, p.user_id, p.lat ?? "", p.lng ?? "",
-        p.junction_kind ?? "",
-        ...dirCells, total);
+    runningTotal += binTotal;
+    row(i + 1, clock(t0), clock(t1), ...cells, binTotal);
   }
+  row("");
+  row("TOTAL", "", "", ...cols.map((arm) =>
+    Math.max(0, mine.filter((t) => t.to_arm === arm).reduce((s, t) => s + t.delta, 0))),
+    runningTotal);
 
-  // ── LINK RETENTIONS + PATH BREAKDOWN (only if reconcile ran) ────────
-  if (result) {
-    row("");
-    row("# LINK RETENTIONS");
-    row("from", "to", "retention_rho", "rho_ci_low", "rho_ci_high",
-        "travel_time_seconds", "effective_speed_mps", "turn_share",
-        "background_per_bin", "correlation", "departures", "arrivals",
-        "confidence", "warnings");
-    for (const l of result.links) {
-      row(l.from, l.to, l.rho.toFixed(4), l.rhoLow.toFixed(4), l.rhoHigh.toFixed(4),
-          l.tauSeconds, l.effectiveSpeedMps?.toFixed(3) ?? "",
-          l.turnShare.toFixed(4), l.background.toFixed(2), l.correlation.toFixed(3),
-          l.departures, l.arrivals, l.confidence, l.warnings.join(" | "));
-    }
-    row("");
-    row("# PATH ESTIMATES (all combinations)");
-    row("label", "path", "estimate", "ci_low", "ci_high", "confidence");
-    for (const p of result.paths) {
-      row(p.label, p.path.join(">"),
-          Math.round(p.estimate), Math.round(p.ciLow), Math.round(p.ciHigh),
-          p.confidence);
-    }
-  }
   return withBom(out.join("\n"));
 }
 
-export function tapsToCsv(rows: TapRow[]): string {
-  const header = ["id","project_id","user_id","user_code",
-                  "from_arm","to_arm","delta","occurred_at","received_at"];
-  const lines = [header.join(",")];
-  for (const r of rows) {
-    lines.push([
-      r.id, r.project_id, r.user_id, r.user_code,
-      r.from_arm ?? "", r.to_arm, r.delta, r.occurred_at, r.received_at,
-    ].map(escape).join(","));
-  }
-  return withBom(lines.join("\n"));
+/**
+ * Fetch once, build a time-series file for every participant. Returns
+ * [{ filename, csv }] ready for downloadCsv. A non-admin will (via RLS) only
+ * see their own taps, so only their file is populated.
+ */
+export async function exportPerMember(
+  project: Project,
+  participants: Participant[],
+  binSeconds = EXPORT_BIN_SECONDS,
+): Promise<{ filename: string; csv: string }[]> {
+  const taps = await fetchTaps(project.id);
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  return participants
+    .slice()
+    .sort((a, b) => a.join_order - b.join_order)
+    .map((p) => ({
+      filename: `Node_${p.code}_${project.join_code}_${stamp}.csv`,
+      csv: memberTimeSeriesCsv(project, p, taps, binSeconds),
+    }));
 }
 
+// ── helpers ────────────────────────────────────────────────────────────────
+
+function clock(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
 function escape(v: unknown): string {
   const s = v == null ? "" : String(v);
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

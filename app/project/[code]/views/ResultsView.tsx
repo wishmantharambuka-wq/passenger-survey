@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase/client";
 import type { EdgeRow, Participant, Project } from "@/hooks/useProject";
 import { enumeratePaths, reconcile, toSeries, type LinkSpec, type RawBin } from "@/lib/flow/reconcile";
 import type { ReconcileResult } from "@/lib/flow/types";
-import { downloadCsv, fullExport } from "@/lib/export/csv";
+import { downloadCsv, exportPerMember } from "@/lib/export/csv";
 
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
 
@@ -79,10 +79,8 @@ export default function ResultsView({
   async function exportAll() {
     setBusy(true);
     try {
-      const bundle = await fullExport(project, participants, edges);
-      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-      downloadCsv(`node_counts_${project.join_code}_${stamp}.csv`, bundle.summaryCsv);
-      downloadCsv(`raw_taps_${project.join_code}_${stamp}.csv`,    bundle.tapsCsv);
+      const files = await exportPerMember(project, participants);
+      for (const f of files) downloadCsv(f.filename, f.csv);
     } finally { setBusy(false); }
   }
 
@@ -96,7 +94,7 @@ export default function ResultsView({
           </div>
           <button onClick={exportAll} disabled={busy}
                   className="ml-auto rounded-xl bg-green px-5 py-2.5 text-sm font-bold text-black disabled:opacity-40">
-            {busy ? "Preparing…" : "Export to Excel"}
+            {busy ? "Preparing…" : "Export (one file per node)"}
           </button>
         </div>
         <p className="mt-1 text-xs text-ash">

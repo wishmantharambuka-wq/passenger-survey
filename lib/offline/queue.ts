@@ -12,13 +12,13 @@ import { supabase } from "@/lib/supabase/client";
  * retry as aggressively as we like without inflating anyone's counts.
  */
 
+/** Matches the `taps` table columns exactly — the batch is inserted as-is. */
 export interface CountEvent {
   id: string;
-  session_id: string;
-  node_id: string;
-  surveyor_id: string;
-  from_approach: string | null;
-  to_approach: string;
+  project_id: string;
+  user_id: string;
+  from_arm: string | null;
+  to_arm: string;
   delta: 1 | -1;
   attributes: Record<string, unknown>;
   occurred_at_device: string;
@@ -76,14 +76,35 @@ export async function flush(): Promise<{ sent: number; remaining: number }> {
   }
   flushing = true;
   try {
-    const batch = (await pending()).slice(0, 200);
-    if (batch.length === 0) return { sent: 0, remaining: 0 };
+    const all = await pending();
+
+    // Discard records queued in an older shape (pre-`taps` migration) — they
+    // can never insert and would poison the whole batch. Drop them once.
+    const stale = all.filter((e) => !e.project_id || !e.user_id);
+    if (stale.length) {
+      const d0 = await db();
+      await new Promise<void>((resolve) => {
+        const t = d0.transaction(STORE, "readwrite");
+        const store = t.objectStore(STORE);
+        for (const e of stale) store.delete((e as { id: string }).id);
+        t.oncomplete = () => resolve();
+        t.onerror = () => resolve();
+      });
+    }
+
+    const batch = all.filter((e) => e.project_id && e.user_id).slice(0, 200);
+    if (batch.length === 0) return { sent: 0, remaining: await pendingCount() };
 
     const { error } = await supabase
-      .from("count_events")
+      .from("taps")
       .upsert(batch, { onConflict: "id", ignoreDuplicates: true });
 
-    if (error) return { sent: 0, remaining: await pendingCount() };
+    if (error) {
+      // Don't silently swallow — a schema/RLS mismatch here means NO data ever
+      // lands and the export comes back empty with no clue why.
+      console.error("[queue] tap flush failed:", error.message, error);
+      return { sent: 0, remaining: await pendingCount() };
+    }
 
     const d = await db();
     await new Promise<void>((resolve, reject) => {

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import JunctionPad, { fallbackArms } from "@/components/survey/JunctionPad";
 import type { Participant, Project, EdgeRow } from "@/hooks/useProject";
-import { downloadCsv, fullExport } from "@/lib/export/csv";
+import { downloadCsv, exportPerMember } from "@/lib/export/csv";
 
 /**
  * The counting screen the participants live in.
@@ -46,13 +46,11 @@ export default function CountingView({
       const { error } = await supabase.rpc("stop_project", { p_project: project.id });
       if (error) throw error;
 
-      // pull everything and hand the file down straight away
-      const bundle = await fullExport(project, participants, edges);
-      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-      downloadCsv(`node_counts_${project.join_code}_${stamp}.csv`, bundle.summaryCsv);
-      downloadCsv(`raw_taps_${project.join_code}_${stamp}.csv`,    bundle.tapsCsv);
-      // then the router will flip us to /project/[code] → ResultsView
-      // via the projects Postgres-changes subscription
+      // one time-series file per member, downloaded straight away
+      const files = await exportPerMember(project, participants);
+      for (const f of files) downloadCsv(f.filename, f.csv);
+      // the router then flips everyone to ResultsView via the projects
+      // Postgres-changes subscription
     } catch (e: any) { setErr(e.message ?? String(e)); }
     finally { setBusy(false); }
   }, [project, participants, edges]);

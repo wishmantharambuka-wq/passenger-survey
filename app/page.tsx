@@ -66,7 +66,7 @@ export default function Home() {
             <label className="text-xs uppercase tracking-wider text-ash">Your name (optional)</label>
             <input value={name} onChange={(e) => setName(e.target.value)}
                    placeholder="e.g. Coordinator"
-                   className="rounded-xl bg-white/8 px-4 py-3 text-white outline-none placeholder:text-ash/60 focus:ring-2 focus:ring-orange" />
+                   className="field rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-orange" />
             <button disabled={busy} onClick={create}
                     className="rounded-2xl bg-orange py-4 text-lg font-semibold text-black disabled:opacity-50">
               {busy ? "Creating…" : "Create & get PIN"}
@@ -80,11 +80,11 @@ export default function Home() {
             <label className="text-xs uppercase tracking-wider text-ash">Your name (optional)</label>
             <input value={name} onChange={(e) => setName(e.target.value)}
                    placeholder="e.g. Surveyor B"
-                   className="rounded-xl bg-white/8 px-4 py-3 text-white outline-none placeholder:text-ash/60 focus:ring-2 focus:ring-blue" />
+                   className="field rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue" />
             <label className="mt-2 text-xs uppercase tracking-wider text-ash">6-digit PIN</label>
             <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                    inputMode="numeric" pattern="[0-9]*" placeholder="••••••"
-                   className="rounded-xl bg-white/8 px-4 py-4 text-center text-3xl font-bold tracking-[0.4em] text-white outline-none placeholder:text-ash/40 focus:ring-2 focus:ring-blue" />
+                   className="field rounded-xl px-4 py-4 text-center text-3xl font-bold tracking-[0.4em] outline-none focus:ring-2 focus:ring-blue" />
             <button disabled={busy || code.length < 4} onClick={join}
                     className="rounded-2xl bg-blue py-4 text-lg font-semibold text-black disabled:opacity-50">
               {busy ? "Joining…" : "Join"}
