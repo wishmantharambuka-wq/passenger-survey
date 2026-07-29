@@ -29,15 +29,21 @@ export interface JunctionPadProps {
   userId: string;
   code: string;                     // A / B / C — this participant's letter
   kind: "straight" | "t_junction" | "cross_junction" | "terminus" | "custom";
-  arms: JunctionArm[];              // supply from the drawn edges (see hook below)
+  arms: JunctionArm[];              // clean compass arms from fallbackArms(kind)
   /** Origin nodes (terminus, e.g. station exit) don't need a "coming from" step. */
   isOrigin?: boolean;
+  /** Render a Done button in the footer. Wired by the parent (admin closes
+   *  the whole project; participants show a "waiting" screen). */
+  onDone?: () => void;
+  doneLabel?: string;
+  doneVariant?: "primary" | "muted";
 }
 
 interface LocalTap { id: string; armId: string; at: number }
 
 export default function JunctionPad({
   projectId, userId, code, kind, arms, isOrigin,
+  onDone, doneLabel = "Done", doneVariant = "primary",
 }: JunctionPadProps) {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [recent, setRecent] = useState<LocalTap[]>([]);
@@ -273,10 +279,22 @@ export default function JunctionPad({
         >
           Undo
         </button>
-        <div className="glass ml-auto rounded-2xl px-5 py-3.5 text-sm">
+        <div className="glass rounded-2xl px-4 py-3.5 text-sm">
           <span className="text-ash">total </span>
           <span className="font-bold tabular-nums text-white">{total}</span>
         </div>
+        {onDone && (
+          <button
+            onClick={onDone}
+            className={`ml-auto rounded-2xl px-6 py-3.5 text-base font-bold active:scale-[0.98] ${
+              doneVariant === "primary"
+                ? "bg-green text-black"
+                : "glass text-white"
+            }`}
+          >
+            {doneLabel}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -315,19 +333,28 @@ function kindLabel(k: JunctionPadProps["kind"]): string {
            custom: "Custom node" }[k];
 }
 
-/** When no edges are drawn yet, show the diagram they picked so buttons still work. */
+/**
+ * Compass arms for each junction type. The id IS the compass tag ('N', 'NE',
+ * 'E', …) so the raw taps and the CSV export are human-readable — no
+ * `dir-90` internals leaking into the analyst's spreadsheet.
+ *
+ * The counting UI never uses letter labels for arms (B, C, …). The junction
+ * kind picked in the lobby is the only thing that shapes this widget.
+ */
 export function fallbackArms(kind: JunctionPadProps["kind"]): JunctionArm[] {
   const arms = (bearings: number[]) =>
-    bearings.map((b, i) => ({
-      id: `dir-${b}`, bearing: b, label: compass(b),
+    bearings.map((b) => ({
+      id: compass(b),
+      bearing: b,
+      label: compass(b),
       connected: false,
     }));
   switch (kind) {
-    case "straight":       return arms([0, 180]);
-    case "t_junction":     return arms([0, 120, 240]);
-    case "cross_junction": return arms([0, 90, 180, 270]);
-    case "terminus":       return arms([0]);
-    default:               return arms([0, 90, 180, 270]);
+    case "straight":       return arms([0, 180]);                       // N, S
+    case "t_junction":     return arms([0, 120, 240]);                  // N, SE, SW
+    case "cross_junction": return arms([0, 90, 180, 270]);              // N, E, S, W
+    case "terminus":       return arms([0]);                            // out only
+    default:               return arms([0, 45, 90, 135, 180, 225, 270, 315]);
   }
 }
 

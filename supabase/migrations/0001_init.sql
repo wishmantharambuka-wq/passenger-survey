@@ -325,16 +325,14 @@ begin
 end $$;
 
 -- admin: with edges drawn, flip everyone into counting UI
+-- Edges are optional at start time. They enable OD-path reconciliation
+-- afterwards, but per-node counting only needs participants + junctions.
 create or replace function start_project(p_project uuid) returns void
 language plpgsql security definer as $$
 begin
   if not exists (
     select 1 from projects p where p.id = p_project and p.admin_id = auth.uid()
   ) then raise exception 'not the admin' using errcode='P0005'; end if;
-
-  if not exists (
-    select 1 from project_edges e where e.project_id = p_project
-  ) then raise exception 'no edges drawn yet' using errcode='P0007'; end if;
 
   update projects p set status = 'active', started_at = now() where p.id = p_project;
 end $$;

@@ -106,8 +106,13 @@ export default function AdminMap({
             </p>
             <div className="mt-2 text-xs text-white/70">
               {edges.length} edge{edges.length === 1 ? "" : "s"} drawn
+              {edges.length === 0 && (
+                <span className="ml-2 text-ash">
+                  (optional — needed only for path-flow analysis)
+                </span>
+              )}
             </div>
-            <button disabled={busy || edges.length === 0} onClick={startProject}
+            <button disabled={busy} onClick={startProject}
                     className="mt-2 w-full rounded-xl bg-orange py-3.5 text-base font-bold text-black disabled:opacity-40">
               Start Project →
             </button>
