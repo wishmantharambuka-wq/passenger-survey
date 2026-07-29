@@ -68,8 +68,10 @@ create or replace function check_participant_cap() returns trigger
 language plpgsql as $$
 declare cnt int;
 begin
-  select count(*) into cnt from project_participants where project_id = new.project_id;
-  if cnt >= (select max_participants from projects where id = new.project_id) then
+  select count(*) into cnt
+    from project_participants pp
+    where pp.project_id = new.project_id;
+  if cnt >= (select p.max_participants from projects p where p.id = new.project_id) then
     raise exception 'project is full' using errcode = 'P0001';
   end if;
   return new;
@@ -221,6 +223,11 @@ end $$;
 
 -- USER A: create a project → returns (id, join_code). The creator becomes
 -- admin AND participant #1.
+--
+-- Note: OUT columns from `returns table(...)` share a namespace with real
+-- table columns inside the function body — hence the explicit table
+-- qualifiers on every column reference. Without them Postgres raises
+-- 42702 "column reference is ambiguous".
 create or replace function create_project(project_name text)
 returns table(project_id uuid, join_code text)
 language plpgsql security definer as $$
@@ -232,7 +239,7 @@ begin
   code := _fresh_join_code();
   insert into projects (join_code, name, admin_id, status)
     values (code, project_name, uid, 'lobby')
-    returning id into pid;
+    returning projects.id into pid;
 
   insert into project_participants (project_id, user_id, join_order)
     values (pid, uid, 1);
@@ -250,19 +257,27 @@ begin
   if uid is null then raise exception 'not authenticated'; end if;
   insert into profiles(id) values (uid) on conflict (id) do nothing;
 
-  select id, status into pid, st from projects
-    where join_code = code and status <> 'closed'
-    order by created_at desc limit 1;
+  select projects.id, projects.status
+    into pid, st
+    from projects
+    where projects.join_code = join_project.code
+      and projects.status <> 'closed'
+    order by projects.created_at desc limit 1;
   if pid is null then raise exception 'no open project with that code' using errcode='P0002'; end if;
   if st <> 'lobby' then raise exception 'project already started' using errcode='P0003'; end if;
 
   -- if already a participant, just return
-  if exists (select 1 from project_participants where project_id = pid and user_id = uid) then
+  if exists (
+    select 1 from project_participants pp
+      where pp.project_id = pid and pp.user_id = uid
+  ) then
     return query select pid; return;
   end if;
 
-  select coalesce(max(join_order), 0) + 1 into next_order
-    from project_participants where project_id = pid;
+  select coalesce(max(pp.join_order), 0) + 1
+    into next_order
+    from project_participants pp
+    where pp.project_id = pid;
 
   insert into project_participants (project_id, user_id, join_order)
     values (pid, uid, next_order);
@@ -280,13 +295,13 @@ create or replace function set_participant_ready(
 ) returns void
 language plpgsql security definer as $$
 begin
-  update project_participants
-     set junction_kind = p_kind,
-         location      = st_setsrid(st_point(p_lng, p_lat), 4326)::geography,
+  update project_participants pp
+     set junction_kind  = p_kind,
+         location       = st_setsrid(st_point(p_lng, p_lat), 4326)::geography,
          gps_accuracy_m = p_acc,
-         last_seen_at  = now(),
-         ready         = true
-   where project_id = p_project and user_id = auth.uid();
+         last_seen_at   = now(),
+         ready          = true
+   where pp.project_id = p_project and pp.user_id = auth.uid();
   if not found then raise exception 'not a participant' using errcode='P0004'; end if;
 end $$;
 
@@ -295,37 +310,43 @@ create or replace function begin_mapping(p_project uuid) returns void
 language plpgsql security definer as $$
 declare not_ready int;
 begin
-  if not exists (select 1 from projects where id = p_project and admin_id = auth.uid()) then
-    raise exception 'not the admin' using errcode='P0005';
-  end if;
-  select count(*) into not_ready from project_participants
-    where project_id = p_project and not ready;
+  if not exists (
+    select 1 from projects p where p.id = p_project and p.admin_id = auth.uid()
+  ) then raise exception 'not the admin' using errcode='P0005'; end if;
+
+  select count(*) into not_ready
+    from project_participants pp
+    where pp.project_id = p_project and not pp.ready;
   if not_ready > 0 then
     raise exception 'still waiting for % participant(s)', not_ready using errcode='P0006';
   end if;
-  update projects set status = 'mapping' where id = p_project;
+
+  update projects p set status = 'mapping' where p.id = p_project;
 end $$;
 
 -- admin: with edges drawn, flip everyone into counting UI
 create or replace function start_project(p_project uuid) returns void
 language plpgsql security definer as $$
 begin
-  if not exists (select 1 from projects where id = p_project and admin_id = auth.uid()) then
-    raise exception 'not the admin' using errcode='P0005';
-  end if;
-  if not exists (select 1 from project_edges where project_id = p_project) then
-    raise exception 'no edges drawn yet' using errcode='P0007';
-  end if;
-  update projects set status = 'active', started_at = now() where id = p_project;
+  if not exists (
+    select 1 from projects p where p.id = p_project and p.admin_id = auth.uid()
+  ) then raise exception 'not the admin' using errcode='P0005'; end if;
+
+  if not exists (
+    select 1 from project_edges e where e.project_id = p_project
+  ) then raise exception 'no edges drawn yet' using errcode='P0007'; end if;
+
+  update projects p set status = 'active', started_at = now() where p.id = p_project;
 end $$;
 
 create or replace function stop_project(p_project uuid) returns void
 language plpgsql security definer as $$
 begin
-  if not exists (select 1 from projects where id = p_project and admin_id = auth.uid()) then
-    raise exception 'not the admin' using errcode='P0005';
-  end if;
-  update projects set status = 'closed', ended_at = now() where id = p_project;
+  if not exists (
+    select 1 from projects p where p.id = p_project and p.admin_id = auth.uid()
+  ) then raise exception 'not the admin' using errcode='P0005'; end if;
+
+  update projects p set status = 'closed', ended_at = now() where p.id = p_project;
 end $$;
 
 create or replace function server_now() returns timestamptz language sql stable as $$ select now() $$;
