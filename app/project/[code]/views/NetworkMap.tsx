@@ -28,18 +28,23 @@ export default function NetworkMap({
       />
       <Recenter center={center} />
 
-      {edges.map((e) => (
-        <Polyline key={e.id}
-                  positions={e.path.coordinates.map((c) => [c[1], c[0]])}
-                  pathOptions={{ color: "#1E90FF", weight: 5, opacity: 0.75 }}>
-          <Tooltip sticky>
-            {byId.get(e.from_user)?.code}–{byId.get(e.to_user)?.code} · {Math.round(e.length_m)} m
-          </Tooltip>
-        </Polyline>
-      ))}
+      {edges.map((e) => {
+        const from = byId.get(e.from_user);
+        const to   = byId.get(e.to_user);
+        if (from?.lat == null || to?.lat == null) return null;
+        return (
+          <Polyline key={e.id}
+                    positions={[[from.lat, from.lng!], [to.lat, to.lng!]]}
+                    pathOptions={{ color: "#1E90FF", weight: 5, opacity: 0.75 }}>
+            <Tooltip sticky>
+              {from.code}–{to.code} · {Math.round(e.length_m ?? 0)} m
+            </Tooltip>
+          </Polyline>
+        );
+      })}
 
-      {participants.filter((p) => p.location).map((p) => {
-        const [lng, lat] = p.location!.coordinates;
+      {participants.filter((p) => p.lat != null && p.lng != null).map((p) => {
+        const lat = p.lat!, lng = p.lng!;
         const isSelected = selected === p.user_id;
         return (
           <CircleMarker key={p.user_id} center={[lat, lng]} radius={18}

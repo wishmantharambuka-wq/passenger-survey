@@ -16,7 +16,10 @@ export interface Participant {
   code: string;
   junction_kind: "straight" | "t_junction" | "cross_junction" | "terminus" | "custom" | null;
   ready: boolean;
-  location: { coordinates: [number, number] } | null;
+  /** Plain lat/lng, populated by set_participant_ready. See 0003_participant_latlng.sql
+   *  for why we don't read the geography column on the client. */
+  lat: number | null;
+  lng: number | null;
   gps_accuracy_m: number | null;
   last_seen_at: string | null;
 }
@@ -24,8 +27,9 @@ export interface Participant {
 export interface EdgeRow {
   id: string; project_id: string;
   from_user: string; to_user: string;
-  path: { coordinates: [number, number][] };
   length_m: number; bidirectional: boolean;
+  /** Endpoint coords are DERIVED at render time from the two participants —
+   *  storing them here would double the sync surface for no benefit. */
 }
 
 /**
@@ -54,9 +58,12 @@ export function useProject(joinCode: string) {
       if (!cancelled) setProject(p as Project);
 
       const [{ data: pp }, { data: ee }] = await Promise.all([
-        supabase.from("project_participants").select("*")
+        supabase.from("project_participants")
+          .select("project_id,user_id,join_order,code,junction_kind,ready,lat,lng,gps_accuracy_m,last_seen_at")
           .eq("project_id", p.id).order("join_order"),
-        supabase.from("project_edges").select("*").eq("project_id", p.id),
+        supabase.from("project_edges")
+          .select("id,project_id,from_user,to_user,length_m,bidirectional")
+          .eq("project_id", p.id),
       ]);
       if (!cancelled) {
         setParticipants((pp ?? []) as Participant[]);

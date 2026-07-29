@@ -25,10 +25,10 @@ export default function AdminMap({
   const [err, setErr] = useState<string | null>(null);
 
   const center = useMemo(() => {
-    const withLoc = participants.filter((p) => p.location);
+    const withLoc = participants.filter((p) => p.lat != null && p.lng != null);
     if (withLoc.length === 0) return { lat: 6.9271, lng: 79.8612 };
-    const lat = withLoc.reduce((s, p) => s + p.location!.coordinates[1], 0) / withLoc.length;
-    const lng = withLoc.reduce((s, p) => s + p.location!.coordinates[0], 0) / withLoc.length;
+    const lat = withLoc.reduce((s, p) => s + p.lat!, 0) / withLoc.length;
+    const lng = withLoc.reduce((s, p) => s + p.lng!, 0) / withLoc.length;
     return { lat, lng };
   }, [participants]);
 
@@ -39,11 +39,12 @@ export default function AdminMap({
 
     const from = participants.find((p) => p.user_id === selected)!;
     const to   = participants.find((p) => p.user_id === userId)!;
-    if (!from.location || !to.location) { setErr("both endpoints need a GPS pin"); return; }
+    if (from.lat == null || to.lat == null) { setErr("both endpoints need a GPS pin"); return; }
 
     try {
       setBusy(true); setErr(null);
-      const line = `LINESTRING(${from.location.coordinates.join(" ")}, ${to.location.coordinates.join(" ")})`;
+      // WKT round-tripped as text — PostgREST parses it into the geography column
+      const line = `LINESTRING(${from.lng} ${from.lat}, ${to.lng} ${to.lat})`;
       const { error } = await supabase.from("project_edges").insert({
         project_id: project.id,
         from_user: from.user_id,
