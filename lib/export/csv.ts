@@ -30,7 +30,7 @@ function armsForKind(kind: Participant["junction_kind"]): string[] {
   }
 }
 
-interface RawTap {
+export interface RawTap {
   id: string;
   user_id: string;
   to_arm: string;
@@ -39,15 +39,36 @@ interface RawTap {
   received_at: string;
 }
 
-async function fetchTaps(projectId: string): Promise<RawTap[]> {
+const PAGE = 1000;
+
+/**
+ * Fetch EVERY tap for the project.
+ *
+ * PostgREST caps a single response at 1000 rows, so a plain select silently
+ * truncates a real survey (5 surveyors x 40 taps/min x 30 min is ~6000 rows)
+ * and the export looks complete while missing most of the data. Page through
+ * with .range() until a short page comes back.
+ */
+export async function fetchProjectTaps(projectId: string): Promise<RawTap[]> {
   // Lazy import keeps this module importable outside the browser (tests).
   const { supabase } = await import("@/lib/supabase/client");
-  const { data } = await supabase
-    .from("taps")
-    .select("id, user_id, to_arm, delta, occurred_at, received_at")
-    .eq("project_id", projectId)
-    .order("occurred_at");
-  return (data ?? []) as RawTap[];
+  const all: RawTap[] = [];
+
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("taps")
+      .select("id, user_id, to_arm, delta, occurred_at, received_at")
+      .eq("project_id", projectId)
+      .order("occurred_at", { ascending: true })
+      .order("id", { ascending: true })     // stable tiebreak so paging can't skip/repeat
+      .range(from, from + PAGE - 1);
+
+    if (error) throw new Error(`could not read taps: ${error.message}`);
+    const rows = (data ?? []) as RawTap[];
+    all.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return all;
 }
 
 /**
@@ -130,25 +151,37 @@ export function memberTimeSeriesCsv(
   return withBom(out.join("\n"));
 }
 
-/**
- * Fetch once, build a time-series file for every participant. Returns
- * [{ filename, csv }] ready for downloadCsv. A non-admin will (via RLS) only
- * see their own taps, so only their file is populated.
- */
-export async function exportPerMember(
-  project: Project,
-  participants: Participant[],
-  binSeconds = EXPORT_BIN_SECONDS,
-): Promise<{ filename: string; csv: string }[]> {
-  const taps = await fetchTaps(project.id);
+/** Filename for one node's export. */
+export function memberFilename(project: Project, participant: Participant): string {
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-  return participants
-    .slice()
-    .sort((a, b) => a.join_order - b.join_order)
-    .map((p) => ({
-      filename: `Node_${p.code}_${project.join_code}_${stamp}.csv`,
-      csv: memberTimeSeriesCsv(project, p, taps, binSeconds),
-    }));
+  return `Node_${participant.code}_${project.join_code}_${stamp}.csv`;
+}
+
+/**
+ * Download exactly ONE node's file.
+ *
+ * Deliberately one file per click: browsers throttle and silently drop rapid
+ * successive downloads, so the previous "loop over every member and download
+ * each" approach delivered only whichever file survived the race — which
+ * presented as "clicked A, got B".
+ */
+export function downloadMember(
+  project: Project,
+  participant: Participant,
+  taps: RawTap[],
+  binSeconds = EXPORT_BIN_SECONDS,
+) {
+  downloadCsv(
+    memberFilename(project, participant),
+    memberTimeSeriesCsv(project, participant, taps, binSeconds),
+  );
+}
+
+/** Net tap count per node — shown beside each download button as a sanity check. */
+export function tapCountsByUser(taps: RawTap[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const t of taps) out[t.user_id] = (out[t.user_id] ?? 0) + t.delta;
+  return out;
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────

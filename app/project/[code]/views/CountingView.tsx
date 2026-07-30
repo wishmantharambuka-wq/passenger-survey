@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import JunctionPad, { fallbackArms } from "@/components/survey/JunctionPad";
 import type { Participant, Project, EdgeRow } from "@/hooks/useProject";
-import { downloadCsv, exportPerMember } from "@/lib/export/csv";
+import { flush } from "@/lib/offline/queue";
 
 /**
  * The counting screen the participants live in.
@@ -39,21 +39,23 @@ export default function CountingView({
     [myself.junction_kind],
   );
 
-  const stopAndExport = useCallback(async () => {
-    if (!window.confirm("Stop the project for everyone and download the results?")) return;
+  const stopProject = useCallback(async () => {
+    if (!window.confirm("Stop counting for everyone and show the results?")) return;
     setBusy(true); setErr(null);
     try {
+      // Push anything still queued on THIS device before freezing the session,
+      // otherwise the last few taps would miss the export.
+      await flush();
+
       const { error } = await supabase.rpc("stop_project", { p_project: project.id });
       if (error) throw error;
 
-      // one time-series file per member, downloaded straight away
-      const files = await exportPerMember(project, participants);
-      for (const f of files) downloadCsv(f.filename, f.csv);
-      // the router then flips everyone to ResultsView via the projects
-      // Postgres-changes subscription
+      // Everyone (including us) flips to ResultsView via the projects
+      // Postgres-changes subscription. Downloads happen there — one button per
+      // node, one file per click.
     } catch (e: any) { setErr(e.message ?? String(e)); }
     finally { setBusy(false); }
-  }, [project, participants, edges]);
+  }, [project.id]);
 
   if (localDone && !amAdmin) {
     return (
@@ -83,8 +85,14 @@ export default function CountingView({
         code={myself.code}
         kind={myself.junction_kind ?? "custom"}
         arms={arms}
-        onDone={amAdmin ? (busy ? undefined : stopAndExport) : () => setLocalDone(true)}
-        doneLabel={amAdmin ? (busy ? "Stopping…" : "Done & Export") : "Done"}
+        onDone={
+          amAdmin
+            ? (busy ? undefined : stopProject)
+            // flush first so this surveyor's last taps reach the server before
+            // the admin closes the session
+            : () => { void flush(); setLocalDone(true); }
+        }
+        doneLabel={amAdmin ? (busy ? "Stopping…" : "Done") : "Done"}
         doneVariant="primary"
       />
       {err && (

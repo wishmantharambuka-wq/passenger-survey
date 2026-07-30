@@ -55,5 +55,28 @@ if (!dataRows[1].endsWith(",0,0,0,0,0")) fail.push(`window2 wrong: ${dataRows[1]
 // window 4 (row 3): W=5, total 5
 if (!dataRows[3].endsWith(",0,0,0,5,5")) fail.push(`window4 wrong: ${dataRows[3]}`);
 
+// ── node isolation: each member's file must contain ONLY that member's data ──
+// This is the regression guard for "clicked download A, got B's numbers".
+const nodeB: any = {
+  ...participant, user_id: "uB", code: "B", join_order: 2,
+  junction_kind: "straight", lat: 6.9337, lng: 79.8452,
+};
+const csvA = memberTimeSeriesCsv(project, participant, taps, 30).replace(/^﻿/, "");
+const csvB = memberTimeSeriesCsv(project, nodeB, taps, 30).replace(/^﻿/, "");
+
+if (!csvA.startsWith("Node,A")) fail.push("A's file is not labelled Node,A");
+if (!csvB.startsWith("Node,B")) fail.push("B's file is not labelled Node,B");
+// A recorded 10 net taps (12 of A's rows, minus 1 undo pair); B recorded 1
+const totalA = Number(csvA.split("\n").find((l) => l.startsWith("TOTAL,"))!.split(",").pop());
+const totalB = Number(csvB.split("\n").find((l) => l.startsWith("TOTAL,"))!.split(",").pop());
+if (totalA !== 10) fail.push(`A total expected 10, got ${totalA}`);
+if (totalB !== 1)  fail.push(`B total expected 1 (only its own tap), got ${totalB}`);
+if (csvA === csvB) fail.push("A and B produced identical files — data not isolated");
+// B is a straight road: must expose N,S columns only, not A's cross layout
+if (!csvB.includes("period,time_start,time_end,N,S,total"))
+  fail.push("B's columns do not match its junction kind");
+// B's own lat/lng, not A's
+if (!csvB.includes("Latitude,6.9337")) fail.push("B's file has the wrong latitude");
+
 console.log(fail.length ? "\nFAIL:\n" + fail.join("\n") : "\nALL ASSERTIONS PASSED");
 process.exit(fail.length ? 1 : 0);

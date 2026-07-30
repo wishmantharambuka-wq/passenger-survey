@@ -397,7 +397,9 @@ create policy "self tap during active" on taps for insert with check (
                 on pp.project_id = p.id and pp.user_id = auth.uid()
               where p.id = taps.project_id and p.status = 'active')
 );
-create policy "read own taps" on taps for select using (user_id = auth.uid() or is_admin(project_id));
+-- Every member can read the project's taps — the results screen offers a
+-- per-node download to everyone. Writing is still self-only (policy above).
+create policy "read project taps" on taps for select using (in_project(project_id));
 
 create policy "read bins" on tap_bins for select using (in_project(project_id));
 create policy "read estimates" on flow_estimates for select using (in_project(project_id));
