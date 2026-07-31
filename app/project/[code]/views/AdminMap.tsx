@@ -77,7 +77,7 @@ export default function AdminMap({
   }
 
   return (
-    <main className="flex h-[100dvh] flex-col gap-2 p-2">
+    <main className="flex h-[100dvh] flex-col gap-2 p-2 pb-[calc(0.5rem+18px)]">
       <div className="glass flex items-center gap-3 rounded-2xl px-4 py-2.5">
         <span className="text-sm font-semibold text-white">{project.name}</span>
         <span className="rounded-full bg-orange/20 px-2 py-0.5 text-[10px] uppercase tracking-wider text-orange">

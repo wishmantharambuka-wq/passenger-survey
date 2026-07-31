@@ -52,7 +52,7 @@ export default function Lobby({
   }
 
   return (
-    <main className="mx-auto flex min-h-[100dvh] max-w-md flex-col gap-3 p-3">
+    <main className="mx-auto flex min-h-[100dvh] max-w-md flex-col gap-3 p-3 pb-[calc(0.75rem+18px)]">
       <div className="glass rounded-3xl px-5 py-4 text-center">
         <p className="text-xs uppercase tracking-wider text-ash">Join PIN</p>
         <p className="mt-1 select-all text-5xl font-black tracking-[0.3em] text-orange">

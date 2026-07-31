@@ -96,7 +96,7 @@ export default function ResultsView({
   const totalTaps = taps.reduce((s, t) => s + t.delta, 0);
 
   return (
-    <main className="mx-auto flex min-h-[100dvh] max-w-3xl flex-col gap-3 p-3">
+    <main className="mx-auto flex min-h-[100dvh] max-w-3xl flex-col gap-3 p-3 pb-[calc(0.75rem+18px)]">
       <div className="glass rounded-2xl px-4 py-3">
         <p className="text-xs uppercase tracking-wider text-ash">Session complete</p>
         <p className="text-lg font-semibold text-white">{project.name}</p>

@@ -163,8 +163,9 @@ export default function JunctionPad({
   const HUB_R = 68;
   const ARM_LEN = 132;
 
+  // the +20px keeps the fixed credit line clear of the Done button
   return (
-    <div className="flex h-full flex-col gap-3 p-3 pb-[env(safe-area-inset-bottom)]">
+    <div className="flex h-full flex-col gap-3 p-3 pb-[calc(env(safe-area-inset-bottom)+20px)]">
       {/* status strip */}
       <div className="glass flex items-center gap-3 rounded-2xl px-4 py-2.5">
         <span className="text-2xl font-bold text-white">Node {code}</span>
